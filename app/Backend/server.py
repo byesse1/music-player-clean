@@ -2,12 +2,21 @@ from flask import Flask, send_from_directory, request, jsonify, send_file
 import json
 import uuid
 import os
-import sys
 import yt_dlp
+import sys
 import hashlib
 from datetime import datetime
 from dotenv import load_dotenv
+import requests
+from sclib import SoundcloudAPI, Track, Playlist
+import time
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
+# Загружаем переменные окружения
+load_dotenv()
+
+# Добавляем пути для импорта модулей
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -15,14 +24,6 @@ from models import db, User, Track, UserTrack, Playlist, PlaylistTrack, Friendsh
 from sound import remove_vocals, boost_bass
 from pydub import AudioSegment
 import boto3
-import os
-from tempfile import NamedTemporaryFile
-
-load_dotenv()
-
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
 
 app = Flask(__name__)
 
@@ -30,7 +31,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 APP_DIR = os.path.dirname(BASE_DIR)
 PROJECT_DIR = os.path.dirname(APP_DIR)
 
-# ========== НАСТРОЙКА БАЗЫ ДАННЫХ POSTGRESQL ==========
+# ========== НАСТРОЙКА БАЗЫ ДАННЫХ ==========
 DATABASE_URL = 'sqlite:///music_player.db'
 
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
@@ -39,11 +40,6 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
 # ========== ПУТИ К ПАПКАМ ==========
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-APP_DIR = os.path.dirname(BASE_DIR)
-PROJECT_DIR = os.path.dirname(APP_DIR)
-
-# Только для временных файлов (при загрузке/обработке)
 TEMP_DIR = os.path.join(PROJECT_DIR, "resources", "Temp")
 os.makedirs(TEMP_DIR, exist_ok=True)
 
@@ -531,7 +527,7 @@ def update_nick():
         return jsonify({"error": str(e)}), 500
 
 
-# ========== API АУДИОРЕДАКТОРА ==========
+# ========== API ДРУЗЕЙ ==========
 @app.route('/api/friends/list', methods=['POST'])
 def friends_list():
     try:
@@ -780,6 +776,215 @@ def playlists_top():
         return jsonify({"error": str(e)}), 500
 
 
+# ========== API ПОИСКА И СКАЧИВАНИЯ (SoundCloud) ==========
+# Создайте сессию с повторными попытками для устойчивости к сбоям
+def get_requests_session():
+    session = requests.Session()
+    retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+    session.mount('https://', HTTPAdapter(max_retries=retries))
+    return session
+
+@app.route('/api/search_tracks', methods=['POST'])
+def search_tracks():
+    try:
+        data = request.json
+        query = data.get('query', '').strip()
+
+        if not query:
+            return jsonify({"error": "Введите поисковый запрос"}), 400
+
+        print(f"🔍 Поиск на SoundCloud: {query}")
+
+        # ⚠️ ВСТАВЬТЕ НОВЫЙ CLIENT_ID, ПОЛУЧЕННЫЙ ИЗ БРАУЗЕРА ⚠️
+        CLIENT_ID = "НОВЫЙ_CLIENT_ID_ИЗ_БРАУЗЕРА"
+
+        search_url = f"https://api-v2.soundcloud.com/search/tracks?q={query}&client_id={CLIENT_ID}&limit=15"
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Origin': 'https://soundcloud.com',
+            'Referer': 'https://soundcloud.com/'
+        }
+
+        session = get_requests_session()
+        response = session.get(search_url, headers=headers, timeout=30)
+
+        if response.status_code != 200:
+            print(f"❌ Ошибка SoundCloud API: {response.status_code}")
+            return jsonify({"error": f"Ошибка SoundCloud: {response.status_code}"}), 500
+
+        soundcloud_data = response.json()
+        results = []
+
+        for track in soundcloud_data.get('collection', []):
+            if track.get('kind') == 'track':
+                results.append({
+                    "id": str(track.get('id')),
+                    "name": track.get('title', 'Без названия')[:100],
+                    "artist": track.get('user', {}).get('username', 'Неизвестный исполнитель')[:50],
+                    "source": "soundcloud",
+                    "duration": track.get('duration', 0) // 1000,
+                    "downloadable": track.get('downloadable', False),
+                    "stream_url": track.get('stream_url', ''),
+                    "permalink_url": track.get('permalink_url', ''),
+                    "artwork_url": track.get('artwork_url', '')
+                })
+
+        print(f"✅ Найдено: {len(results)} треков")
+        return jsonify({"ok": True, "results": results})
+
+    except Exception as e:
+        print(f"❌ Ошибка поиска: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/download_track', methods=['POST'])
+def download_track():
+    temp_path = None
+    try:
+        data = request.json
+        track_info = data.get('track')
+        username = data.get('nick')
+
+        if not track_info:
+            return jsonify({"error": "Нет информации о треке"}), 400
+
+        track_url = track_info.get('permalink_url')
+        track_name = track_info.get('name', 'track')
+        artist = track_info.get('artist', 'Unknown')
+
+        print(f"📥 Скачивание с SoundCloud через yt-dlp: {artist} - {track_name}")
+
+        # Настройки yt-dlp для скачивания аудио в MP3
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+            'outtmpl': os.path.join(TEMP_DIR, '%(title)s.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+            'ignoreerrors': True,
+            # Добавляем заголовки, чтобы имитировать браузер
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-us,en;q=0.5',
+                'Sec-Fetch-Mode': 'navigate',
+            }
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # Извлекаем информацию о треке
+            info = ydl.extract_info(track_url, download=False)
+
+            # Проверяем, можно ли скачать трек
+            if not info.get('is_downloadable', True):
+                return jsonify(
+                    {"error": "Этот трек доступен только для онлайн-прослушивания, скачивание запрещено автором"}), 400
+
+            # Скачиваем трек
+            ydl.params['outtmpl'] = os.path.join(TEMP_DIR, f"%(title)s_%(id)s.%(ext)s")
+            ydl.download([track_url])
+
+            # Ищем скачанный файл
+            downloaded_files = [f for f in os.listdir(TEMP_DIR) if f.endswith('.mp3') and '_' in f]
+            if not downloaded_files:
+                return jsonify({"error": "Не удалось найти скачанный файл"}), 500
+
+            # Берём самый новый файл
+            temp_file = max(downloaded_files, key=lambda f: os.path.getctime(os.path.join(TEMP_DIR, f)))
+            temp_path = os.path.join(TEMP_DIR, temp_file)
+
+        # Загружаем в Yandex Cloud
+        safe_name = f"{artist} - {track_name}"[:80]
+        safe_name = "".join(c for c in safe_name if c.isalnum() or c in (' ', '-', '_', '(', ')', '&'))
+        unique_id = uuid.uuid4().hex[:8]
+        object_key = f"music/soundcloud_{unique_id}_{safe_name}.mp3"
+
+        file_url = upload_to_yandex(temp_path, object_key)
+
+        if not file_url:
+            return jsonify({"error": "Ошибка загрузки файла в облако"}), 500
+
+        # Сохраняем в базу данных (та же логика)
+        user = User.query.filter_by(username=username).first()
+        if user:
+            existing_track = Track.query.filter_by(youtube_id=track_url).first()
+
+            if not existing_track:
+                new_track = Track(
+                    title=track_name,
+                    artist=artist,
+                    file_path=file_url,
+                    youtube_id=track_url,
+                    duration=track_info.get('duration', 0),
+                    cover_art=track_info.get('artwork_url')
+                )
+                db.session.add(new_track)
+                db.session.flush()
+                track_id_db = new_track.id
+            else:
+                track_id_db = existing_track.id
+
+            existing_user_track = UserTrack.query.filter_by(
+                user_id=user.id,
+                track_id=track_id_db
+            ).first()
+
+            if not existing_user_track:
+                max_order = db.session.query(db.func.max(UserTrack.order_position)).filter_by(
+                    user_id=user.id).scalar() or 0
+                user_track = UserTrack(
+                    user_id=user.id,
+                    track_id=track_id_db,
+                    order_position=max_order + 1
+                )
+                db.session.add(user_track)
+
+                main_playlist = Playlist.query.filter_by(user_id=user.id, is_main=True).first()
+                if main_playlist and not PlaylistTrack.query.filter_by(playlist_id=main_playlist.id,
+                                                                       track_id=track_id_db).first():
+                    max_order_main = db.session.query(db.func.max(PlaylistTrack.order_position)).filter_by(
+                        playlist_id=main_playlist.id
+                    ).scalar() or 0
+                    db.session.add(PlaylistTrack(
+                        playlist_id=main_playlist.id,
+                        track_id=track_id_db,
+                        order_position=max_order_main + 1
+                    ))
+
+                db.session.commit()
+                print(f"✅ Трек добавлен в библиотеку {username}")
+
+        return jsonify({
+            "ok": True,
+            "original_name": f"{artist} - {track_name}",
+            "url": file_url
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ Ошибка скачивания: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        # Удаляем временный файл в любом случае
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+
+# ========== API АУДИОРЕДАКТОРА ==========
 @app.route('/api/process_audio', methods=['POST'])
 def process_audio():
     try:
@@ -828,196 +1033,180 @@ def process_audio():
         return jsonify({"error": str(e)}), 500
 
 
-# ========== API ПОИСКА И СКАЧИВАНИЯ (YouTube) ==========
-@app.route('/api/search_tracks', methods=['POST'])
-def search_tracks():
+@app.route('/api/process_equalizer', methods=['POST'])
+def process_equalizer():
     try:
-        data = request.json
-        query = data.get('query', '').strip()
+        if 'audio' not in request.files:
+            return jsonify({"error": "Нет файла"}), 400
 
-        if not query:
-            return jsonify({"error": "Введите поисковый запрос"}), 400
+        file = request.files['audio']
+        bass_level = int(request.form.get('bass_level', 5))
+        speed_level = float(request.form.get('speed_level', 1.0))
 
-        print(f"🔍 Поиск через YouTube: {query}")
+        unique_id = uuid.uuid4().hex
+        input_path = os.path.join(TEMP_DIR, f"temp_{unique_id}.mp3")
+        original_name_without_ext = os.path.splitext(file.filename)[0]
 
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'extract_flat': True,
-            'default_search': 'ytsearch15'
-        }
+        output_filename = f"{original_name_without_ext}_equalizer_bass{bass_level}_speed{speed_level}.mp3"
+        output_path = os.path.join(TEMP_DIR, output_filename)
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            search_results = ydl.extract_info(f"ytsearch15:{query}", download=False)
+        file.save(input_path)
 
-        formatted_results = []
-        for entry in search_results.get('entries', []):
-            if not entry:
-                continue
+        audio = AudioSegment.from_file(input_path)
 
-            title = entry.get('title', 'Неизвестно')
-            if ' - ' in title:
-                artist, track_name = title.split(' - ', 1)
-            else:
-                artist = entry.get('uploader', 'Неизвестно')
-                track_name = title
+        if bass_level != 5:
+            low = audio.low_pass_filter(200)
+            high = audio.high_pass_filter(200)
+            boost = bass_level - 5
+            low = low + boost
+            audio = low.overlay(high)
 
-            formatted_results.append({
-                "id": entry.get('id'),
-                "name": track_name[:100],
-                "artist": artist[:50],
-                "source": "youtube",
-                "audio_url": f"https://music.youtube.com/watch?v={entry.get('id')}",
-                "ext": "mp3"
-            })
+        if speed_level != 1.0:
+            temp_wav = os.path.join(TEMP_DIR, f"temp_eq_{unique_id}.wav")
+            audio.export(temp_wav, format="wav")
 
-        print(f"✅ Найдено: {len(formatted_results)} треков")
-        return jsonify({"ok": True, "results": formatted_results})
+            import librosa
+            y, sr = librosa.load(temp_wav, sr=None)
+            y_stretched = librosa.effects.time_stretch(y, rate=speed_level)
+
+            import soundfile as sf
+            sf.write(temp_wav, y_stretched, sr)
+
+            audio = AudioSegment.from_wav(temp_wav)
+            os.remove(temp_wav)
+
+        audio.export(output_path, format="mp3", bitrate="320k")
+
+        if os.path.exists(input_path):
+            os.remove(input_path)
+
+        print(f"✅ Обработан файл: {output_filename} (бас: {bass_level}, скорость: {speed_level})")
+
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name=output_filename,
+            mimetype="audio/mpeg"
+        )
 
     except Exception as e:
-        print(f"❌ Ошибка поиска: {e}")
+        print(f"❌ Ошибка обработки: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/download_track', methods=['POST'])
-def download_track():
+# ========== API ПОЛУЧЕНИЯ ДЛИТЕЛЬНОСТИ ==========
+@app.route('/api/get_duration', methods=['POST'])
+def get_duration():
     try:
         data = request.json
-        track_info = data.get('track')
-        username = data.get('nick')
+        file_path = data.get('file_path')
 
-        if not track_info:
-            return jsonify({"error": "Нет информации о треке"}), 400
+        if not file_path:
+            return jsonify({"error": "Не указан путь к файлу"}), 400
 
-        video_id = track_info.get('id')
-        if not video_id:
-            return jsonify({"error": "Нет ID трека"}), 400
-
-        track_name = track_info.get('name', 'track')
-        artist = track_info.get('artist', 'Unknown')
-
-        safe_name = f"{artist} - {track_name}"[:80]
-        safe_name = "".join(c for c in safe_name if c.isalnum() or c in (' ', '-', '_', '(', ')', '&'))
-        object_key = f"music/{video_id}_{safe_name}.mp3"
-
-        file_url = None
-        if file_exists_in_yandex(object_key):
-            file_url = get_yandex_url(object_key)
-            print(f"📁 Файл уже существует в облаке: {object_key}")
+        # Если файл в облаке, скачиваем временно
+        if file_path.startswith('https://'):
+            import requests as req
+            temp_path = os.path.join(TEMP_DIR, f"temp_duration_{uuid.uuid4().hex}.mp3")
+            response = req.get(file_path)
+            with open(temp_path, 'wb') as f:
+                f.write(response.content)
+            full_path = temp_path
+            is_temp = True
         else:
-            unique_id = uuid.uuid4().hex[:8]
-            temp_path = os.path.join(TEMP_DIR, f"{unique_id}_temp.mp3")
+            full_path = file_path
+            is_temp = False
 
-            cookies_content = os.environ.get('YOUTUBE_COOKIES')
-            cookies_file = None
-            
-            if cookies_content:
-                # Создаём временный файл с cookies
-                import tempfile
-                cookies_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
-                cookies_file.write(cookies_content)
-                cookies_file.close()
-                print(f"✅ Cookies загружены для YouTube")
-            
-            ydl_opts = {
-                'format': 'bestaudio[ext=m4a]/bestaudio/best',
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '192',
-                }],
-                'outtmpl': os.path.join(TEMP_DIR, f"{unique_id}_%(title)s.%(ext)s"),
-                'quiet': True,
-                'no_warnings': True,
-                'extractor_args': {'youtube': {'player_client': ['ios', 'web']}},
-            }
+        if not os.path.exists(full_path):
+            return jsonify({"error": "Файл не найден"}), 404
 
-            url = f"https://music.youtube.com/watch?v={video_id}"
+        from pydub import AudioSegment
+        audio = AudioSegment.from_file(full_path)
+        duration = int(len(audio) / 1000)
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+        if is_temp and os.path.exists(full_path):
+            os.remove(full_path)
 
-            for f in os.listdir(TEMP_DIR):
-                if f.startswith(f"{unique_id}_") and f.endswith('.mp3'):
-                    temp_path = os.path.join(TEMP_DIR, f)
-                    break
+        track = Track.query.filter_by(file_path=file_path).first()
+        if track and track.duration == 0:
+            track.duration = duration
+            db.session.commit()
 
-            file_url = upload_to_yandex(temp_path, object_key)
+        return jsonify({"ok": True, "duration": duration})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-            if cookies_file and os.path.exists(cookies_file.name):
-                os.unlink(cookies_file.name)
-                print(f"🗑️ Временный файл cookies удалён")
-            
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
 
-        if not file_url:
-            return jsonify({"error": "Ошибка загрузки файла"}), 500
+# ========== API ОБЛОЖЕК ==========
+@app.route('/api/save_track_cover', methods=['POST'])
+def save_track_cover():
+    try:
+        data = request.json
+        track_url = data.get('track_url')
+        cover_data = data.get('cover_data')
 
-        user = User.query.filter_by(username=username).first()
-        if user:
-            existing_track = Track.query.filter_by(youtube_id=video_id).first()
+        if not track_url or not cover_data:
+            return jsonify({"error": "Нет данных"}), 400
 
-            if not existing_track:
-                new_track = Track(
-                    title=track_name,
-                    artist=artist,
-                    file_path=file_url,
-                    youtube_id=video_id,
-                    duration=0
-                )
-                db.session.add(new_track)
-                db.session.flush()
-                track_id = new_track.id
-            else:
-                track_id = existing_track.id
+        track_hash = hashlib.md5(track_url.encode()).hexdigest()[:10]
+        object_key = f"covers/{track_hash}.jpg"
 
-            existing_user_track = UserTrack.query.filter_by(
-                user_id=user.id,
-                track_id=track_id
-            ).first()
+        temp_path = os.path.join(TEMP_DIR, f"temp_cover_{track_hash}.jpg")
 
-            if not existing_user_track:
-                max_order = db.session.query(db.func.max(UserTrack.order_position)).filter_by(
-                    user_id=user.id).scalar() or 0
-                user_track = UserTrack(
-                    user_id=user.id,
-                    track_id=track_id,
-                    order_position=max_order + 1
-                )
+        if ',' in cover_data:
+            cover_data = cover_data.split(',')[1]
 
-                main_playlist = Playlist.query.filter_by(user_id=user.id, is_main=True).first()
-                if main_playlist:
-                    existing_in_main = PlaylistTrack.query.filter_by(
-                        playlist_id=main_playlist.id,
-                        track_id=track_id
-                    ).first()
-                    if not existing_in_main:
-                        max_order_main = db.session.query(db.func.max(PlaylistTrack.order_position)).filter_by(
-                            playlist_id=main_playlist.id
-                        ).scalar() or 0
-                        playlist_track_main = PlaylistTrack(
-                            playlist_id=main_playlist.id,
-                            track_id=track_id,
-                            order_position=max_order_main + 1
-                        )
-                        db.session.add(playlist_track_main)
+        import base64
+        cover_bytes = base64.b64decode(cover_data)
 
-                db.session.add(user_track)
-                db.session.commit()
-                print(f"✅ Трек добавлен в плейлист {username}")
+        with open(temp_path, 'wb') as f:
+            f.write(cover_bytes)
+
+        cover_url = upload_to_yandex(temp_path, object_key)
+
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+        if not cover_url:
+            return jsonify({"error": "Ошибка загрузки обложки в облако"}), 500
+
+        track = Track.query.filter_by(file_path=track_url).first()
+        if track:
+            track.cover_art = cover_url
+            db.session.commit()
+
+        print(f"✅ Обложка сохранена в облако: {cover_url}")
 
         return jsonify({
             "ok": True,
-            "original_name": f"{artist} - {track_name}",
-            "url": file_url
+            "cover_url": cover_url
         })
 
     except Exception as e:
         db.session.rollback()
-        print(f"❌ Ошибка скачивания: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Ошибка сохранения обложки: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/get_track_cover', methods=['POST'])
+def get_track_cover():
+    try:
+        data = request.json
+        track_url = data.get('track_url')
+
+        if not track_url:
+            return jsonify({"error": "Нет URL трека"}), 400
+
+        track = Track.query.filter_by(file_path=track_url).first()
+        if track and track.cover_art:
+            return jsonify({"ok": True, "cover_url": track.cover_art})
+
+        return jsonify({"ok": True, "cover_url": None})
+
+    except Exception as e:
+        print(f"❌ Ошибка получения обложки: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -1237,188 +1426,13 @@ def play_playlist():
         return jsonify({"error": str(e)}), 500
 
 
-# ========== API ПОЛУЧЕНИЯ ДЛИТЕЛЬНОСТИ ==========
-@app.route('/api/get_duration', methods=['POST'])
-def get_duration():
-    try:
-        data = request.json
-        file_path = data.get('file_path')
-
-        if not file_path:
-            return jsonify({"error": "Не указан путь к файлу"}), 400
-
-        # Если файл в облаке, скачиваем временно
-        if file_path.startswith('https://'):
-            import requests
-            temp_path = os.path.join(TEMP_DIR, f"temp_duration_{uuid.uuid4().hex}.mp3")
-            response = requests.get(file_path)
-            with open(temp_path, 'wb') as f:
-                f.write(response.content)
-            full_path = temp_path
-            is_temp = True
-        else:
-            full_path = file_path
-            is_temp = False
-
-        if not os.path.exists(full_path):
-            return jsonify({"error": "Файл не найден"}), 404
-
-        from pydub import AudioSegment
-        audio = AudioSegment.from_file(full_path)
-        duration = int(len(audio) / 1000)
-
-        if is_temp and os.path.exists(full_path):
-            os.remove(full_path)
-
-        track = Track.query.filter_by(file_path=file_path).first()
-        if track and track.duration == 0:
-            track.duration = duration
-            db.session.commit()
-
-        return jsonify({"ok": True, "duration": duration})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-# ========== API ОБЛОЖЕК (ОБЛАКО) ==========
-@app.route('/api/save_track_cover', methods=['POST'])
-def save_track_cover():
-    try:
-        data = request.json
-        track_url = data.get('track_url')
-        cover_data = data.get('cover_data')
-
-        if not track_url or not cover_data:
-            return jsonify({"error": "Нет данных"}), 400
-
-        track_hash = hashlib.md5(track_url.encode()).hexdigest()[:10]
-        object_key = f"covers/{track_hash}.jpg"
-
-        temp_path = os.path.join(TEMP_DIR, f"temp_cover_{track_hash}.jpg")
-
-        if ',' in cover_data:
-            cover_data = cover_data.split(',')[1]
-
-        import base64
-        cover_bytes = base64.b64decode(cover_data)
-
-        with open(temp_path, 'wb') as f:
-            f.write(cover_bytes)
-
-        cover_url = upload_to_yandex(temp_path, object_key)
-
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-
-        if not cover_url:
-            return jsonify({"error": "Ошибка загрузки обложки в облако"}), 500
-
-        track = Track.query.filter_by(file_path=track_url).first()
-        if track:
-            track.cover_art = cover_url
-            db.session.commit()
-
-        print(f"✅ Обложка сохранена в облако: {cover_url}")
-
-        return jsonify({
-            "ok": True,
-            "cover_url": cover_url
-        })
-
-    except Exception as e:
-        db.session.rollback()
-        print(f"❌ Ошибка сохранения обложки: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/api/get_track_cover', methods=['POST'])
-def get_track_cover():
-    try:
-        data = request.json
-        track_url = data.get('track_url')
-
-        if not track_url:
-            return jsonify({"error": "Нет URL трека"}), 400
-
-        track = Track.query.filter_by(file_path=track_url).first()
-        if track and track.cover_art:
-            return jsonify({"ok": True, "cover_url": track.cover_art})
-
-        return jsonify({"ok": True, "cover_url": None})
-
-    except Exception as e:
-        print(f"❌ Ошибка получения обложки: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-# ========== API ЭКВАЛАЙЗЕРА ==========
-@app.route('/api/process_equalizer', methods=['POST'])
-def process_equalizer():
-    try:
-        if 'audio' not in request.files:
-            return jsonify({"error": "Нет файла"}), 400
-
-        file = request.files['audio']
-        bass_level = int(request.form.get('bass_level', 5))
-        speed_level = float(request.form.get('speed_level', 1.0))
-
-        unique_id = uuid.uuid4().hex
-        input_path = os.path.join(TEMP_DIR, f"temp_{unique_id}.mp3")
-        original_name_without_ext = os.path.splitext(file.filename)[0]
-
-        output_filename = f"{original_name_without_ext}_equalizer_bass{bass_level}_speed{speed_level}.mp3"
-        output_path = os.path.join(TEMP_DIR, output_filename)
-
-        file.save(input_path)
-
-        audio = AudioSegment.from_file(input_path)
-
-        if bass_level != 5:
-            low = audio.low_pass_filter(200)
-            high = audio.high_pass_filter(200)
-            boost = bass_level - 5
-            low = low + boost
-            audio = low.overlay(high)
-
-        if speed_level != 1.0:
-            temp_wav = os.path.join(TEMP_DIR, f"temp_eq_{unique_id}.wav")
-            audio.export(temp_wav, format="wav")
-
-            import librosa
-            y, sr = librosa.load(temp_wav, sr=None)
-            y_stretched = librosa.effects.time_stretch(y, rate=speed_level)
-
-            import soundfile as sf
-            sf.write(temp_wav, y_stretched, sr)
-
-            audio = AudioSegment.from_wav(temp_wav)
-            os.remove(temp_wav)
-
-        audio.export(output_path, format="mp3", bitrate="320k")
-
-        if os.path.exists(input_path):
-            os.remove(input_path)
-
-        print(f"✅ Обработан файл: {output_filename} (бас: {bass_level}, скорость: {speed_level})")
-
-        return send_file(
-            output_path,
-            as_attachment=True,
-            download_name=output_filename,
-            mimetype="audio/mpeg"
-        )
-
-    except Exception as e:
-        print(f"❌ Ошибка обработки: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
+# ========== ДЕБАГ ==========
 @app.route('/api/debug/users', methods=['GET'])
 def debug_users():
     users = User.query.all()
     result = [{'id': u.id, 'username': u.username, 'created_at': u.created_at} for u in users]
     return jsonify(result)
+
 
 # ========== ЗАПУСК ==========
 if __name__ == "__main__":
