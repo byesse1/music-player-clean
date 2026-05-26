@@ -15,6 +15,8 @@ from models import db, User, Track, UserTrack, Playlist, PlaylistTrack, Friendsh
 from sound import remove_vocals, boost_bass
 from pydub import AudioSegment
 import boto3
+import os
+from tempfile import NamedTemporaryFile
 
 load_dotenv()
 
@@ -906,6 +908,17 @@ def download_track():
             unique_id = uuid.uuid4().hex[:8]
             temp_path = os.path.join(TEMP_DIR, f"{unique_id}_temp.mp3")
 
+            cookies_content = os.environ.get('YOUTUBE_COOKIES')
+            cookies_file = None
+            
+            if cookies_content:
+                # Создаём временный файл с cookies
+                import tempfile
+                cookies_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+                cookies_file.write(cookies_content)
+                cookies_file.close()
+                print(f"✅ Cookies загружены для YouTube")
+            
             ydl_opts = {
                 'format': 'bestaudio/best',
                 'postprocessors': [{
@@ -915,7 +928,8 @@ def download_track():
                 }],
                 'outtmpl': os.path.join(TEMP_DIR, f"{unique_id}_%(title)s.%(ext)s"),
                 'quiet': True,
-                'no_warnings': True
+                'no_warnings': True,
+                'cookiefile': cookies_file.name if cookies_file else None
             }
 
             url = f"https://music.youtube.com/watch?v={video_id}"
@@ -930,6 +944,10 @@ def download_track():
 
             file_url = upload_to_yandex(temp_path, object_key)
 
+            if cookies_file and os.path.exists(cookies_file.name):
+                os.unlink(cookies_file.name)
+                print(f"🗑️ Временный файл cookies удалён")
+            
             if os.path.exists(temp_path):
                 os.remove(temp_path)
 
