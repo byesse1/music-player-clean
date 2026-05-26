@@ -6,6 +6,8 @@ import sys
 import yt_dlp
 import hashlib
 from datetime import datetime
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models import db, User, Track, UserTrack, Playlist, PlaylistTrack, Friendship, FriendInvite, PlaylistLike
 from sound import remove_vocals, boost_bass
 from pydub import AudioSegment
