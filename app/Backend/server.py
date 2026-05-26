@@ -929,7 +929,7 @@ def download_track():
                 'outtmpl': os.path.join(TEMP_DIR, f"{unique_id}_%(title)s.%(ext)s"),
                 'quiet': True,
                 'no_warnings': True,
-                'cookiefile': cookies_file.name if cookies_file else None
+                'extractor_args': {'youtube': {'player_client': ['ios', 'web']}},
             }
 
             url = f"https://music.youtube.com/watch?v={video_id}"
