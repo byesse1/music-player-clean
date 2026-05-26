@@ -1,0 +1,11 @@
+flask
+flask-sqlalchemy
+flask-login
+flask-socketio
+pillow
+yt-dlp
+pydub
+boto3
+python-dotenv
+gunicorn
+psycopg2-binary
