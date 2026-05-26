@@ -795,8 +795,8 @@ def search_tracks():
 
         print(f"🔍 Поиск на SoundCloud: {query}")
 
-        # ⚠️ ВСТАВЬТЕ НОВЫЙ CLIENT_ID, ПОЛУЧЕННЫЙ ИЗ БРАУЗЕРА ⚠️
-        CLIENT_ID = "ROEsbH8bpjaGsqvLX2uk7VjkqxNVlinH"
+        # ⚠️ ВСТАВЬТЕ РЕАЛЬНЫЙ CLIENT_ID (не плейсхолдер!)
+        CLIENT_ID = "YsQ6pTOcGQdVYY9A4FIt9mLk5pTkEXsB"
 
         search_url = f"https://api-v2.soundcloud.com/search/tracks?q={query}&client_id={CLIENT_ID}&limit=15"
 
@@ -805,27 +805,52 @@ def search_tracks():
             'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'en-US,en;q=0.9',
             'Origin': 'https://soundcloud.com',
-            'Referer': 'https://soundcloud.com/'
+            'Referer': 'https://soundcloud.com/discover',
+            'Connection': 'keep-alive',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-site'
         }
 
-        session = get_requests_session()
+        session = requests.Session()
         response = session.get(search_url, headers=headers, timeout=30)
+
+        print(f"📡 Статус ответа: {response.status_code}")
+        print(f"📄 Тип содержимого: {response.headers.get('content-type', 'unknown')}")
+
+        # Проверяем, что ответ — это JSON, а не HTML
+        if 'application/json' not in response.headers.get('content-type', ''):
+            print(f"❌ Получен не JSON, а {response.headers.get('content-type')}")
+            print(f"📄 Первые 200 символов ответа: {response.text[:200]}")
+            return jsonify({"error": "SoundCloud вернул неожиданный ответ. Возможно, IP заблокирован."}), 500
 
         if response.status_code != 200:
             print(f"❌ Ошибка SoundCloud API: {response.status_code}")
             return jsonify({"error": f"Ошибка SoundCloud: {response.status_code}"}), 500
 
+        # Теперь безопасно парсим JSON
         soundcloud_data = response.json()
-        results = []
+        
+        # Проверяем, что получили словарь
+        if not isinstance(soundcloud_data, dict):
+            print(f"❌ Неожиданный тип данных: {type(soundcloud_data)}")
+            return jsonify({"error": "SoundCloud вернул некорректные данные"}), 500
 
-        for track in soundcloud_data.get('collection', []):
+        results = []
+        collection = soundcloud_data.get('collection', [])
+        
+        for track in collection:
+            if not isinstance(track, dict):
+                continue
             if track.get('kind') == 'track':
+                # Безопасно получаем значения с защитой от отсутствия ключей
+                user = track.get('user', {})
                 results.append({
-                    "id": str(track.get('id')),
-                    "name": track.get('title', 'Без названия')[:100],
-                    "artist": track.get('user', {}).get('username', 'Неизвестный исполнитель')[:50],
+                    "id": str(track.get('id', '')),
+                    "name": (track.get('title', 'Без названия') or 'Без названия')[:100],
+                    "artist": (user.get('username', 'Неизвестный исполнитель') or 'Неизвестный исполнитель')[:50],
                     "source": "soundcloud",
-                    "duration": track.get('duration', 0) // 1000,
+                    "duration": (track.get('duration', 0) or 0) // 1000,
                     "downloadable": track.get('downloadable', False),
                     "stream_url": track.get('stream_url', ''),
                     "permalink_url": track.get('permalink_url', ''),
@@ -835,13 +860,16 @@ def search_tracks():
         print(f"✅ Найдено: {len(results)} треков")
         return jsonify({"ok": True, "results": results})
 
+    except requests.exceptions.JSONDecodeError as e:
+        print(f"❌ Ошибка парсинга JSON: {e}")
+        print(f"📄 Текст ответа: {response.text[:500] if 'response' in locals() else 'Нет ответа'}")
+        return jsonify({"error": "SoundCloud вернул некорректный JSON. Возможно, требуется обновить client_id."}), 500
     except Exception as e:
         print(f"❌ Ошибка поиска: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
-
+        
 @app.route('/api/download_track', methods=['POST'])
 def download_track():
     temp_path = None
