@@ -1,0 +1,8 @@
+".env" 
+"*.db" 
+"__pycache__/" 
+"instance/" 
+"resources/Temp/" 
+"*.mp3" 
+"*.wav" 
+"*.m4a" 

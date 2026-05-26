@@ -1,0 +1,1 @@
+для запуска программы введите py .\server.py из music_player\Проект\app\Backend

@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Музыкальный плеер - Профиль</title>
+    <link rel="icon" href="./Image/icon.jpg">
+    <link rel="stylesheet" href="ssiteCSS.css">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        /* Дополнительные стили для профиля с плейлистами */
+        .profile-playlists-section {
+            margin-top: 20px;
+            margin-bottom: 20px;
+            text-align: left;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            padding-top: 20px;
+        }
+
+        .profile-playlists-section h4 {
+            color: rgba(255,255,255,0.8);
+            font-size: 16px;
+            margin-bottom: 15px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .profile-playlist-item {
+            background: rgba(20, 20, 30, 0.6);
+            border-radius: 12px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .profile-playlist-item:hover {
+            background: rgba(50, 50, 70, 0.8);
+            transform: translateX(5px);
+            border-color: rgba(116, 189, 203, 0.3);
+        }
+
+        .profile-playlist-cover {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            object-fit: cover;
+            background: #2a2a3a;
+        }
+
+        .profile-playlist-info {
+            flex: 1;
+        }
+
+        .profile-playlist-name {
+            color: white;
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 2px;
+        }
+
+        .profile-playlist-name .star {
+            color: #ffd700;
+            font-size: 12px;
+            margin-left: 5px;
+        }
+
+        .profile-playlist-count {
+            color: rgba(255,255,255,0.5);
+            font-size: 11px;
+        }
+
+        .play-playlist-btn {
+            background: rgba(116, 189, 203, 0.2);
+            border: none;
+            border-radius: 20px;
+            padding: 5px 12px;
+            color: #74bdcb;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .play-playlist-btn:hover {
+            background: rgba(116, 189, 203, 0.4);
+            color: white;
+        }
+
+        .profile-empty-playlists {
+            text-align: center;
+            padding: 20px;
+            color: rgba(255,255,255,0.4);
+            font-size: 13px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 12px;
+        }
+
+        /* Стили для обновленного профиля */
+        .profile-card {
+            background: #0f0f17 !important;
+            border: 1px solid #2a2a35 !important;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8) !important;
+        }
+
+        #profile-page {
+            background: rgba(0, 0, 0, 0.92) !important;
+            backdrop-filter: blur(8px);
+        }
+
+        .profile-field input {
+            background: #1a1a24 !important;
+            border: 1px solid #2a2a35 !important;
+            color: #e0e0e0 !important;
+        }
+
+        .profile-field input:focus {
+            border-color: #74bdcb !important;
+        }
+
+        .profile-stats {
+            background: #0a0a10 !important;
+            border: 1px solid #1a1a25 !important;
+        }
+
+        .profile-stats .stat-value {
+            color: #74bdcb !important;
+        }
+
+        .profile-stats .stat-label {
+            color: rgba(255,255,255,0.5) !important;
+        }
+
+        #save-profile-btn {
+            background: #1a1a24 !important;
+            color: #74bdcb !important;
+            border: 1px solid #2a2a35 !important;
+        }
+
+        #save-profile-btn:hover {
+            background: #252535 !important;
+        }
+
+        #close-profile-btn {
+            background: #1a1a24 !important;
+            color: #888 !important;
+            border: 1px solid #2a2a35 !important;
+        }
+
+        #close-profile-btn:hover {
+            background: #252535 !important;
+            color: #aaa !important;
+        }
+
+        .profile-playlists-scroll {
+            max-height: 280px;
+            overflow-y: auto;
+            margin-top: 10px;
+            padding-right: 5px;
+        }
+
+        .profile-playlists-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .profile-playlists-scroll::-webkit-scrollbar-track {
+            background: #1a1a24;
+            border-radius: 4px;
+        }
+
+        .profile-playlists-scroll::-webkit-scrollbar-thumb {
+            background: #74bdcb;
+            border-radius: 4px;
+        }
+
+        #profile-nick-display {
+            background: linear-gradient(135deg, #a8edea, #fed6e3);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            font-size: 24px;
+        }
+    </style>
+</head>
+<script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.128.0/build/three.module.js"
+    }
+  }
+</script>
+
+<script type="module">
+  import { createColorBends } from './colorBends.js';
+  
+  const bgContainer = document.createElement('div');
+  bgContainer.style.position = 'fixed';
+  bgContainer.style.top = '0';
+  bgContainer.style.left = '0';
+  bgContainer.style.width = '100%';
+  bgContainer.style.height = '100%';
+  bgContainer.style.zIndex = '-2';
+  bgContainer.style.pointerEvents = 'none';
+  document.body.insertBefore(bgContainer, document.body.firstChild);
+  
+  const effect = createColorBends(bgContainer, {
+    colors: ["#000000", "#0a0a0a", "#1a1a1a", "#2a2a2a", "#3a3a3a"],
+    rotation: 90, autoRotate: 15, speed: 0.2, scale: 1, frequency: 1,
+    warpStrength: 1, mouseInfluence: 1, noise: 0.15, parallax: 0.5,
+    iterations: 1, intensity: 0.6, bandWidth: 6, transparent: true
+  });
+</script>
+<body>
+    <!-- Авторизация -->
+    <div id="auth-container">
+        <div class="auth-card">
+            <h2>Музыкальный плеер</h2>
+            <div class="auth-tabs">
+                <button class="tab-btn active" data-tab="login">Вход</button>
+                <button class="tab-btn" data-tab="register">Регистрация</button>
+            </div>
+            <div class="remember-me">
+                <input type="checkbox" id="remember-me">
+                <label for="remember-me">Запомнить меня</label>
+            </div>
+            <div id="login-form" class="auth-form active">
+                <input type="text" id="login-nick" placeholder="Имя">
+                <input type="password" id="login-password" placeholder="Пароль">
+                <button id="login-btn">Войти</button>
+                <div id="login-error" class="error-message"></div>
+            </div>
+            <div id="register-form" class="auth-form">
+                <input type="text" id="register-nick" placeholder="Имя">
+                <input type="password" id="register-password" placeholder="Пароль">
+                <input type="password" id="repeate-reg-password" placeholder="Повторите пароль">
+                <button id="register-btn">Зарегистрироваться</button>
+                <div id="register-error" class="error-message"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Основной плеер -->
+    <div id="player-container" style="display: none;">
+        <div class="header1">
+            <h1>MELODIKA</h1>
+        </div>
+
+        <div class="user-info">
+            <span id="user-nick" style="cursor: pointer;"></span>
+            <button id="logout-btn">Выйти</button>
+        </div>
+
+        <div class="playlists-section">
+            <button id="playlists-btn" class="playlists_btn">Мои плейлисты</button>
+        </div>
+
+        <div class="search_section">
+            <button class="search_btn">Поиск треков</button>
+        </div>
+
+        <div class="buttons-bar">
+            <div class="show_playlist">
+                <button class="show_btn">Плейлист</button>
+                <div id="playlist" class="playlist"></div>
+            </div>
+            <div class="show_editor">
+                <button class="editor_btn">Аудиоредактор</button>
+                <div id="editor-menu" class="editor-menu">
+                    <button class="editor-option" data-effect="remove_vocals">Удалить голос</button>
+                    <button class="editor-option" data-effect="equalizer">Эквалайзер</button>
+                </div>
+            </div>
+            <button id="shuffle-btn">🔀 Перемешать</button>
+            <button id="change-cover-btn" title="Сменить обложку трека">Обложка</button>
+            <button id="settings-btn">⚙️ Настройки</button>
+        </div>
+
+        <div id="search-container" style="display: none;">
+            <div class="search-card">
+                <h2>Поиск треков</h2>
+                <div class="search-box-centered">
+                    <div class="search-input-wrapper">
+                        <input type="text" id="search-input-centered" placeholder="Название или исполнитель..." autocomplete="off">
+                        <div id="search-history-dropdown" class="search-history-dropdown"></div>
+                    </div>
+                    <button id="search-btn-centered">Найти</button>
+                </div>
+                <div id="search-results-centered" class="search-results-centered"></div>
+                <button id="back-from-search-btn" title="Назад">←</button>
+                <div id="search-status" class="error-message"></div>
+            </div>
+        </div>
+
+        <div id="editor-container" style="display: none;">
+            <div class="editor-card">
+                <h2>Эквалайзер</h2>
+                <input type="file" id="editor-file-input" accept="audio/*">
+                <div id="bass-control" style="display: none;">
+                    <label>Усиление баса:</label>
+                    <input type="range" id="bass-level" min="0" max="20" value="5">
+                    <span id="bass-value">5</span> дБ
+                </div>
+                <div id="speed-control" style="display: none;">
+                    <label>Скорость воспроизведения:</label>
+                    <input type="range" id="speed-level" min="0.5" max="2.0" step="0.01" value="1.0">
+                    <span id="speed-value" style="min-width: 60px;">1.00x</span>
+                </div>
+                <button id="process-btn" disabled>Обработать</button>
+                <button id="back-to-player-btn">← Назад к плееру</button>
+                <div id="editor-status" class="error-message"></div>
+            </div>
+        </div>
+
+        <div class="player-card">
+            <div class="top-section">
+                <img class="music" src="./Image/music.png">
+            </div>
+            <div class="bottom-section">
+                <div class="controls-wrapper">
+                    <div class="buttons">
+                        <button class="shuffle-btn-bottom" id="shuffle-btn-bottom">🔀</button>
+                        <button class="last_track">⏮</button>
+                        <button class="play_pause_track">▶</button>
+                        <button class="next_track">⏭</button>
+                        <button class="cover-btn-bottom" id="cover-btn-bottom">🖼️</button>
+                    </div>
+                    <div class="volume-control">
+                        <span id="volume-image">🔊</span>
+                        <input type="range" id="volume-slider" min="0" max="100" value="50">
+                        <span id="volume-value">50</span>
+                    </div>
+                    <div class="track-title-container">
+                        <div class="track-title" id="track-title">Выберите трек</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальные окна плейлистов -->
+    <div id="playlists-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Мои плейлисты</h2>
+                <button class="close-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <button id="create-playlist-btn" class="create-playlist-btn">➕ Создать плейлист</button>
+                <div id="playlists-list" class="playlists-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="create-playlist-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>➕ Создать плейлист</h2>
+                <button class="close-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="playlist-cover-area" id="playlist-cover-area">
+                    <img id="playlist-cover-preview" src="./Image/music.png" alt="Обложка">
+                    <div class="cover-edit-icon">📷</div>
+                </div>
+                <input type="file" id="playlist-cover-input" accept="image/*" style="display: none;">
+                <input type="text" id="playlist-name" placeholder="Название плейлиста">
+                <textarea id="playlist-description" placeholder="Описание (необязательно)"></textarea>
+                <div class="modal-buttons">
+                    <button id="save-playlist-btn">Создать</button>
+                    <button id="cancel-playlist-btn">Отмена</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="add-to-playlist-modal" class="modal" style="display: none;">
+        <div class="modal-content small">
+            <div class="modal-header">
+                <h2>➕ Добавить в плейлист</h2>
+                <button class="close-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="add-track-name"></p>
+                <div id="playlists-for-add" class="playlists-list-small"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно настроек -->
+    <div id="settings-modal" class="modal" style="display: none;">
+        <div class="modal-content small">
+            <div class="modal-header">
+                <h2>⚙️ Настройки</h2>
+                <button class="close-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-group">
+                    <label>⏱️ Время перехода между треками (crossfade)</label>
+                    <input type="range" id="crossfade-slider" min="0" max="3" step="0.05" value="1.0">
+                    <span id="crossfade-value">1.00</span> сек
+                </div>
+                <div class="settings-group">
+                    <label>🎨 Тема</label>
+                    <div class="theme-switch">
+                        <button class="theme-option" data-theme="dark">🌙 Тёмная</button>
+                        <button class="theme-option" data-theme="light">☀️ Светлая</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="ssiteJS.js"></script>
+    <script>
+        // Дополнительный код для интеграции плейлистов в профиль
+        const originalShowProfilePage = window.showProfilePage;
+        
+        window.showProfilePage = async function(userData) {
+            const oldProfile = document.getElementById('profile-page');
+            if (oldProfile) oldProfile.remove();
+            
+            let userPlaylistsData = [];
+            try {
+                const response = await fetch('/api/playlists', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nick: current_user })
+                });
+                const result = await response.json();
+                if (result.ok) {
+                    userPlaylistsData = result.playlists || [];
+                }
+            } catch(e) { console.error(e); }
+            
+            const savedAvatar = localStorage.getItem(`avatar_${current_user}`);
+            const avatarUrl = savedAvatar || getDefaultAvatar(userData.nick);
+            
+            const playlistsHTML = userPlaylistsData.length > 0 ? 
+                userPlaylistsData.map(playlist => `
+                    <div class="profile-playlist-item" data-playlist-id="${playlist.id}">
+                        <img class="profile-playlist-cover" src="${playlist.cover_art || './Image/music.png'}" alt="cover">
+                        <div class="profile-playlist-info">
+                            <div class="profile-playlist-name">
+                                ${escapeHtml(playlist.name)} ${playlist.is_main ? '<span class="star">⭐</span>' : ''}
+                            </div>
+                            <div class="profile-playlist-count">${playlist.track_count} треков</div>
+                        </div>
+                        <button class="play-playlist-btn" data-id="${playlist.id}">▶ Воспроизвести</button>
+                    </div>
+                `).join('') : '<div class="profile-empty-playlists">📭 У вас пока нет плейлистов<br><small>Нажмите "Мои плейлисты" чтобы создать</small></div>';
+            
+            const profileHTML = `
+                <div id="profile-page">
+                    <div class="profile-card">
+                        <div class="avatar-container" id="avatar-click-area">
+                            <img id="profile-avatar" src="${avatarUrl}" alt="avatar">
+                            <div class="avatar-edit-icon">📷</div>
+                        </div>
+                        <input type="file" id="avatar-input" accept="image/*" style="display: none;">
+                        
+                        <h3 id="profile-nick-display">${escapeHtml(userData.nick)}</h3>
+                        
+                        <div class="profile-field">
+                            <label>Изменить имя</label>
+                            <input type="text" id="edit-nick-input" placeholder="Новое имя" value="${escapeHtml(userData.nick)}">
+                        </div>
+                        
+                        <div class="profile-stats">
+                            <div>
+                                <div class="stat-value">${userData.track_count || 0}</div>
+                                <div class="stat-label">Треков</div>
+                            </div>
+                            <div>
+                                <div class="stat-value">${getUserLevel(userData.track_count || 0)}</div>
+                                <div class="stat-label">Уровень</div>
+                            </div>
+                            <div>
+                                <div class="stat-value">${userPlaylistsData.length}</div>
+                                <div class="stat-label">Плейлистов</div>
+                            </div>
+                        </div>
+                        
+                        <div class="profile-playlists-section">
+                            <h4>🎵 Мои плейлисты</h4>
+                            <div class="profile-playlists-scroll">
+                                ${playlistsHTML}
+                            </div>
+                        </div>
+                        
+                        <div class="profile-buttons">
+                            <button id="save-profile-btn">💾 Сохранить</button>
+                            <button id="close-profile-btn">✕ Закрыть</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', profileHTML);
+            window.profilePage = document.getElementById('profile-page');
+            
+            const avatarArea = document.getElementById('avatar-click-area');
+            const avatarInput = document.getElementById('avatar-input');
+            const saveBtn = document.getElementById('save-profile-btn');
+            const closeBtn = document.getElementById('close-profile-btn');
+            const nickInput = document.getElementById('edit-nick-input');
+            const profileNickDisplay = document.getElementById('profile-nick-display');
+            
+            if (avatarArea) avatarArea.onclick = () => avatarInput.click();
+            
+            if (avatarInput) {
+                avatarInput.onchange = async (e) => {
+                    const file = e.target.files[0];
+                    if (file && file.type.startsWith('image/')) {
+                        if (file.size > 2 * 1024 * 1024) {
+                            alert('Аватарка не должна превышать 2MB');
+                            return;
+                        }
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                            document.getElementById('profile-avatar').src = event.target.result;
+                            localStorage.setItem(`avatar_${current_user}`, event.target.result);
+                            alert('Аватарка обновлена!');
+                        };
+                        reader.readAsDataURL(file);
+                    }
+                };
+            }
+            
+            if (saveBtn) {
+                saveBtn.onclick = async () => {
+                    const newNick = nickInput.value.trim();
+                    if (newNick && newNick !== current_user) {
+                        const checkResponse = await fetch('/api/check_nick', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ nick: newNick })
+                        });
+                        const checkResult = await checkResponse.json();
+                        if (checkResult.exists) {
+                            alert('Имя уже занято');
+                            return;
+                        }
+                        const updateResponse = await fetch('/api/update_nick', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ old_nick: current_user, new_nick: newNick })
+                        });
+                        if (updateResponse.ok) {
+                            current_user = newNick;
+                            document.getElementById('user-nick').textContent = newNick;
+                            if (profileNickDisplay) profileNickDisplay.textContent = newNick;
+                            alert('Имя изменено!');
+                        }
+                    }
+                    closeProfilePageWrapper();
+                };
+            }
+            
+            if (closeBtn) closeBtn.onclick = closeProfilePageWrapper;
+            if (window.profilePage) {
+                window.profilePage.onclick = (e) => {
+                    if (e.target === window.profilePage) closeProfilePageWrapper();
+                };
+            }
+            
+            document.querySelectorAll('.play-playlist-btn').forEach(btn => {
+                btn.onclick = async (e) => {
+                    e.stopPropagation();
+                    const playlistId = parseInt(btn.dataset.id);
+                    if (playlistId) {
+                        await playPlaylistFromProfile(playlistId);
+                        closeProfilePageWrapper();
+                    }
+                };
+            });
+            
+            document.querySelectorAll('.profile-playlist-item').forEach(item => {
+                const playlistId = item.dataset.playlistId;
+                if (playlistId) {
+                    item.style.cursor = 'pointer';
+                    item.onclick = async (e) => {
+                        if (e.target.classList.contains('play-playlist-btn')) return;
+                        await playPlaylistFromProfile(parseInt(playlistId));
+                        closeProfilePageWrapper();
+                    };
+                }
+            });
+        };
+        
+        async function playPlaylistFromProfile(playlistId) {
+            if (!current_user) return;
+            try {
+                const response = await fetch('/api/play_playlist', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nick: current_user, playlist_id: playlistId })
+                });
+                const result = await response.json();
+                if (result.ok && result.tracks && result.tracks.length > 0) {
+                    playlist_container.innerHTML = "";
+                    playlist.length = 0;
+                    result.tracks.forEach(track => {
+                        playlist.push(track);
+                    });
+                    playlist.forEach((song, idx) => {
+                        addSongToPlaylistUI(song.name, song.url, idx);
+                    });
+                    addAddToPlaylistButtons();
+                    index_song = 0;
+                    if (playlist[0]) {
+                        play_song(playlist[0].url);
+                    }
+                    highlightCurrentSongByIndex();
+                    await savePlaylistToServer();
+                    alert(`🎵 Воспроизведение плейлиста`);
+                } else if (result.tracks && result.tracks.length === 0) {
+                    alert('Этот плейлист пуст');
+                } else {
+                    alert('Ошибка загрузки плейлиста');
+                }
+            } catch(e) {
+                console.error(e);
+                alert('Ошибка при воспроизведении');
+            }
+        }
+        
+        function closeProfilePageWrapper() {
+            const profilePageElem = document.getElementById('profile-page');
+            if (profilePageElem) profilePageElem.remove();
+            window.profilePage = null;
+        }
+        
+        window.closeProfilePage = closeProfilePageWrapper;
+        
+        console.log('Профиль с плейлистами загружен');
+    </script>
+</body>
+</html>
