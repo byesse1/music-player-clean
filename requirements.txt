@@ -9,3 +9,5 @@ boto3
 python-dotenv
 gunicorn
 psycopg2-binary
+requests
+soundcloud-lib
