@@ -796,7 +796,7 @@ def search_tracks():
         print(f"🔍 Поиск на SoundCloud: {query}")
 
         # ⚠️ ВСТАВЬТЕ НОВЫЙ CLIENT_ID, ПОЛУЧЕННЫЙ ИЗ БРАУЗЕРА ⚠️
-        CLIENT_ID = "НОВЫЙ_CLIENT_ID_ИЗ_БРАУЗЕРА"
+        CLIENT_ID = "ROEsbH8bpjaGsqvLX2uk7VjkqxNVlinH"
 
         search_url = f"https://api-v2.soundcloud.com/search/tracks?q={query}&client_id={CLIENT_ID}&limit=15"
 
