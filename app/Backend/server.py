@@ -920,7 +920,7 @@ def download_track():
                 print(f"✅ Cookies загружены для YouTube")
             
             ydl_opts = {
-                'format': 'bestaudio/best',
+                'format': 'bestaudio[ext=m4a]/bestaudio/best',
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',
